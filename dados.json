@@ -1,0 +1,46 @@
+import json
+import os
+from sqlalchemy import create_engine, text
+from dotenv import load_dotenv
+
+# Carrega a senha do arquivo .env
+load_dotenv()
+DB_URL = os.getenv("DATABASE_URL")
+
+if not DB_URL:
+    print("ERRO: Configure o .env primeiro!")
+    exit()
+
+engine = create_engine(DB_URL)
+
+def migrar_etiquetas():
+    print("Iniciando migração de ETIQUETAS...")
+    
+    if not os.path.exists('dados.json'):
+        print("Arquivo dados.json não encontrado. Pulando.")
+        return
+
+    with open('dados.json', 'r', encoding='utf-8') as f:
+        dados = json.load(f)
+
+    with engine.connect() as conn:
+        count = 0
+        for data, info in dados.items():
+            # info['entradas'] é uma lista de {horario: "...", valor: 10}
+            if 'entradas' in info:
+                for entrada in info['entradas']:
+                    # Tenta criar um timestamp combinando data e hora
+                    data_hora_str = f"{data} {entrada['horario']}"
+                    valor = entrada['valor']
+                    
+                    conn.execute(text("""
+                        INSERT INTO etiquetas_log (data_hora, quantidade, usuario)
+                        VALUES (:dh, :qtd, 'Migracao')
+                    """), {"dh": data_hora_str, "qtd": valor})
+                    count += 1
+        
+        conn.commit()
+        print(f"Sucesso! {count} registros de etiquetas migrados.")
+
+if __name__ == "__main__":
+    migrar_etiquetas()
