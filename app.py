@@ -2,87 +2,116 @@ import os
 import json
 import pandas as pd
 from datetime import datetime
-from flask import Flask, request, jsonify, send_from_directory, render_template_string
+from flask import Flask, request, jsonify, send_from_directory
 from sqlalchemy import create_engine, text
+from dotenv import load_dotenv  # Biblioteca de segurança
 
-# --- CONFIGURAÇÃO ---
+# ==============================================================================
+# 1. CONFIGURAÇÃO DE SEGURANÇA E BANCO DE DADOS
+# ==============================================================================
+
+# Carrega as variáveis do arquivo .env (apenas quando rodar no PC local)
+load_dotenv()
+
 app = Flask(__name__, static_folder='.')
 
-# ⚠️ COLOQUE SUA CONEXÃO DO SUPABASE AQUI
-DB_URL = "postgresql://postgres.SEU_USUARIO:SUA_SENHA@aws-0-sa-east-1.pooler.supabase.com:5432/postgres"
+# Busca a URL do banco nas variáveis de ambiente (Segurança Máxima)
+# No Render, isso virá da configuração do site. No PC, virá do arquivo .env
+DB_URL = os.getenv("DATABASE_URL")
+
+# Verificação de segurança para não rodar sem banco
+if not DB_URL:
+    raise ValueError("❌ ERRO CRÍTICO: A variável 'DATABASE_URL' não foi encontrada. "
+                     "Crie o arquivo .env (local) ou configure as Environment Variables (Render).")
+
+# Correção para compatibilidade do Render com SQLAlchemy
+if DB_URL.startswith("postgres://"):
+    DB_URL = DB_URL.replace("postgres://", "postgresql://", 1)
+
+# Cria o motor de conexão
 engine = create_engine(DB_URL)
 
 def get_db():
+    """Abre uma conexão temporária com o banco"""
     return engine.connect()
 
 # ==============================================================================
-# 1. ROTAS DE NAVEGAÇÃO (As telas do seu sistema)
+# 2. ROTAS DE NAVEGAÇÃO (Páginas HTML)
 # ==============================================================================
 
 @app.route('/')
 def menu_principal():
-    return """
-    <div style="font-family: sans-serif; text-align: center; padding: 50px;">
-        <h1>🚀 Sistema Integrado Mega</h1>
-        <div style="display: flex; gap: 20px; justify-content: center; margin-top: 30px;">
-            <a href="/etiquetas" style="padding: 20px; background: #2ecc71; color: white; text-decoration: none; border-radius: 8px;">🏷️ Contador de Etiquetas</a>
-            <a href="/estoque" style="padding: 20px; background: #3498db; color: white; text-decoration: none; border-radius: 8px;">📦 Controle de Estoque/Qualidade</a>
-            <a href="/bipagem" style="padding: 20px; background: #9b59b6; color: white; text-decoration: none; border-radius: 8px;">🔍 Bipagem (Conferência)</a>
-        </div>
-    </div>
-    """
-
-@app.route('/etiquetas')
-def view_etiquetas():
-    return send_from_directory('.', 'Controle_Etiquetas.html')
-
-@app.route('/estoque')
-def view_estoque():
-    # Pode usar o Controle_de_Estoque.html ou VerificadorEstoque.html aqui
-    return send_from_directory('.', 'Controle_de_Estoque.html') 
+    """Carrega o Menu Inicial (Dashboard)"""
+    return send_from_directory('.', 'index.html')
 
 @app.route('/bipagem')
 def view_bipagem():
-    return send_from_directory('.', 'index.html')
+    """Carrega o Bipador (Antigo index.html)"""
+    # Certifique-se de ter renomeado o antigo index.html para bipagem.html
+    return send_from_directory('.', 'bipagem.html')
+
+@app.route('/estoque')
+def view_estoque():
+    """Carrega o Controle de Estoque"""
+    return send_from_directory('.', 'Controle_de_Estoque.html')
+
+@app.route('/etiquetas')
+def view_etiquetas():
+    """Carrega o Contador de Etiquetas"""
+    return send_from_directory('.', 'Controle_Etiquetas.html')
 
 # ==============================================================================
-# 2. API UNIFICADA (Backend que fala com o Banco)
+# 3. API - MÓDULO ETIQUETAS
 # ==============================================================================
 
-# --- MÓDULO ETIQUETAS ---
 @app.route('/dados', methods=['GET'])
 def api_etiquetas_get():
-    """Lê o banco SQL e transforma no JSON que seu HTML antigo espera"""
+    """Converte dados do SQL para o formato JSON do Front-end"""
     with get_db() as conn:
-        rows = conn.execute(text("SELECT * FROM etiquetas_log ORDER BY data_hora ASC")).fetchall()
-    
+        result = conn.execute(text("SELECT * FROM etiquetas_log ORDER BY data_hora ASC"))
+        rows = result.fetchall()
+
     dados_json = {}
     for row in rows:
+        # row: (id, data_hora, quantidade, usuario)
         dt = row.data_hora.strftime('%Y-%m-%d')
         hr = row.data_hora.strftime('%H:%M:%S')
-        if dt not in dados_json: dados_json[dt] = {"entradas": [], "total": 0}
+        
+        if dt not in dados_json:
+            dados_json[dt] = {"entradas": [], "total": 0}
+            
         dados_json[dt]["entradas"].append({"horario": hr, "valor": row.quantidade})
         dados_json[dt]["total"] += row.quantidade
+
     return jsonify(dados_json)
 
 @app.route('/dados', methods=['POST'])
 def api_etiquetas_post():
-    """Recebe o JSON do HTML e salva a ÚLTIMA entrada no SQL"""
+    """Salva nova etiqueta no banco"""
     dados = request.json
     hoje = datetime.now().strftime('%Y-%m-%d')
+    
+    # Lógica para pegar apenas o último registro enviado pelo front antigo
     if hoje in dados and dados[hoje]['entradas']:
         ultimo = dados[hoje]['entradas'][-1]
+        valor = ultimo['valor']
+        
         with get_db() as conn:
-            conn.execute(text("INSERT INTO etiquetas_log (quantidade) VALUES (:q)"), {"q": ultimo['valor']})
+            conn.execute(text("INSERT INTO etiquetas_log (quantidade, usuario) VALUES (:q, 'SistemaWeb')"), 
+                         {"q": valor})
             conn.commit()
+            
     return jsonify({"status": "ok"})
 
-# --- MÓDULO ESTOQUE & QUALIDADE ---
+# ==============================================================================
+# 4. API - MÓDULO ESTOQUE & QUALIDADE
+# ==============================================================================
+
 @app.route('/api/estoque', methods=['GET'])
 def api_estoque_get():
-    """Retorna saldo de estoque agrupado por SKU"""
+    """Retorna o saldo de estoque agrupado"""
     with get_db() as conn:
-        # Soma entradas - saídas (lógica simplificada)
+        # Soma entradas e subtrai saídas
         sql = """
             SELECT sku, 
                    SUM(CASE WHEN tipo_movimento = 'ENTRADA' THEN quantidade 
@@ -93,85 +122,102 @@ def api_estoque_get():
         """
         rows = conn.execute(text(sql)).fetchall()
     
-    lista = [{"id": r.sku, "display": r.sku, "qty": r.saldo, "aliases": []} for r in rows]
-    return jsonify(lista)
+    # Formato que o HTML espera
+    inventory = []
+    for r in rows:
+        inventory.append({
+            "id": r.sku, 
+            "display": r.sku, 
+            "qty": r.saldo if r.saldo else 0, 
+            "aliases": []
+        })
+        
+    return jsonify(inventory)
 
 @app.route('/api/movimentar', methods=['POST'])
 def api_movimentar():
-    """Registra Entrada, Saída ou Qualidade"""
+    """Registra movimentação manual (Entrada/Saída/Qualidade)"""
     d = request.json
-    # Espera receber: { sku: "X", tipo: "SAIDA", qtd: 1, obs: "..." }
     with get_db() as conn:
         conn.execute(text("""
             INSERT INTO estoque_movimento (sku, tipo_movimento, quantidade, obs, origem)
-            VALUES (:sku, :tipo, :qtd, :obs, 'Sistema Web')
-        """), {"sku": d.get('sku'), "tipo": d.get('tipo', 'SAIDA'), "qtd": d.get('qtd', 1), "obs": d.get('obs', '')})
+            VALUES (:sku, :tipo, :qtd, :obs, 'Manual Web')
+        """), {
+            "sku": d.get('sku'), 
+            "tipo": d.get('tipo', 'SAIDA'), # Default SAIDA
+            "qtd": d.get('qtd', 1), 
+            "obs": d.get('obs', '')
+        })
         conn.commit()
-    return jsonify({"msg": "Movimento salvo"})
+    return jsonify({"msg": "Salvo com sucesso"})
 
-# --- MÓDULO BIPAGEM (CONFERÊNCIA) ---
+# ==============================================================================
+# 5. API - MÓDULO BIPAGEM (CONFERÊNCIA)
+# ==============================================================================
+
 @app.route('/api/salvar_conferencia', methods=['POST'])
 def api_salvar_conferencia():
-    """Recebe os dados do index.html e salva no banco"""
+    """Recebe o JSON do bipador e salva histórico"""
     dados = request.json
-    # Espera lista de bipes: { motorista: "...", bipes: [{code: "ABC", status: "OK"}] }
+    motorista = dados.get('motorista', 'Desconhecido')
+    bipes = dados.get('bipes', [])
     
     with get_db() as conn:
-        for item in dados.get('bipes', []):
+        for item in bipes:
             conn.execute(text("""
                 INSERT INTO estoque_movimento (sku, tipo_movimento, resultado, obs, origem)
-                VALUES (:sku, 'CONFERENCIA', :res, :mot, 'Bipagem Motorista')
+                VALUES (:sku, 'CONFERENCIA', :res, :mot, 'Bipagem App')
             """), {
                 "sku": item['code'], 
                 "res": item['msg'], 
-                "mot": f"Motorista: {dados.get('motorista')}"
+                "mot": f"Motorista: {motorista}"
             })
         conn.commit()
+        
     return jsonify({"msg": "Conferência salva na nuvem!"})
 
 # ==============================================================================
-# 3. BOT UPSELLER (Recebimento Automático de Excel)
+# 6. API - BOT UPSELLER (UPLOAD DE EXCEL)
 # ==============================================================================
 
 @app.route('/api/bot/upload_upseller', methods=['POST'])
 def bot_upload_excel():
-    """
-    Esta rota espera receber um arquivo .xlsx enviado pelo seu Bot Python.
-    Ela lê o Excel, atualiza o estoque no banco e registra a importação.
-    """
+    """Recebe arquivo Excel via Bot e atualiza estoque"""
     if 'file' not in request.files:
-        return jsonify({"erro": "Nenhum arquivo enviado"}), 400
+        return jsonify({"erro": "Arquivo não enviado"}), 400
     
     arquivo = request.files['file']
     
     try:
-        # Lê o Excel usando Pandas
         df = pd.read_excel(arquivo)
+        total = 0
         
-        # SUPONDO que o Excel do Upseller tenha colunas: 'SKU' e 'Quantidade'
-        # Ajuste os nomes das colunas conforme seu arquivo real
-        total_linhas = 0
         with get_db() as conn:
-            for index, row in df.iterrows():
-                sku = row.get('SKU Mestre', row.get('SKU', 'DESCONHECIDO')) # Tenta achar coluna SKU
-                qtd = row.get('Estoque', row.get('Quantidade', 0))
+            # Insere registro de log da importação
+            conn.execute(text("INSERT INTO importacoes_upseller (arquivo_nome, status) VALUES (:n, 'PROCESSANDO')"), 
+                         {"n": arquivo.filename})
+            conn.commit()
+
+            # Itera sobre o Excel (ajuste as colunas conforme seu arquivo real)
+            for _, row in df.iterrows():
+                # Tenta pegar SKU ou Código
+                sku = str(row.get('SKU', row.get('Código', 'SEM_SKU')))
+                qtd = int(row.get('Estoque', row.get('Saldo', 0)))
                 
-                # Insere como uma atualização de estoque (tipo 'IMPORTACAO_BOT')
+                # Inserimos como um ajuste de inventário
                 conn.execute(text("""
-                    INSERT INTO estoque_movimento (sku, tipo_movimento, quantidade, origem)
-                    VALUES (:sku, 'IMPORTACAO_BOT', :qtd, 'Bot Upseller')
+                    INSERT INTO estoque_movimento (sku, tipo_movimento, quantidade, origem, obs)
+                    VALUES (:sku, 'IMPORTACAO_BOT', :qtd, 'Bot Upseller', 'Carga Automática')
                 """), {"sku": sku, "qtd": qtd})
-                total_linhas += 1
-            
-            # Registra Log
-            conn.execute(text("INSERT INTO importacoes_upseller (arquivo_nome, total_linhas, status) VALUES (:n, :t, 'OK')"),
-                         {"n": arquivo.filename, "t": total_linhas})
+                total += 1
+                
             conn.commit()
             
-        return jsonify({"msg": f"Processado com sucesso. {total_linhas} linhas importadas."})
+        return jsonify({"msg": f"Sucesso! {total} linhas processadas."})
         
     except Exception as e:
         return jsonify({"erro": str(e)}), 500
 
 if __name__ == '__main__':
+    # Roda o servidor na porta 5000
     app.run(host='0.0.0.0', port=5000, debug=True)
