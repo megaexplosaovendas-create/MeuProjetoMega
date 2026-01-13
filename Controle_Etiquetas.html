@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>MEGA - Contador de Etiquetas</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root { --bg:#ffffff; --text:#333333; --card-bg:#f9f9f9; --btn-bg:#4CAF50; --border:#ddd; }
+    body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); padding: 20px; }
+    .container { max-width: 800px; margin: 0 auto; background: var(--card-bg); padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    .header-nav { display: flex; justify-content: space-between; margin-bottom: 20px; }
+    .btn-home { text-decoration: none; color: #666; font-weight: bold; }
+    .input-area { display: flex; gap: 10px; margin-bottom: 20px; }
+    input { padding: 12px; border: 1px solid var(--border); border-radius: 5px; flex: 1; font-size: 1.1rem; }
+    button { padding: 10px 20px; background: var(--btn-bg); color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { padding: 12px; border-bottom: 1px solid var(--border); text-align: left; }
+    .total-hoje { font-size: 1.5rem; font-weight: bold; color: var(--btn-bg); text-align: center; margin: 20px 0; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <div class="header-nav">
+    <a href="/" class="btn-home">⬅ Menu Principal</a>
+    <h1>🏷️ Etiquetas Hoje</h1>
+  </div>
+
+  <div class="input-area">
+    <input type="number" id="qtdInput" placeholder="Quantidade de etiquetas..." autofocus>
+    <button onclick="adicionarEtiqueta()">Adicionar</button>
+  </div>
+
+  <div class="total-hoje" id="totalDisplay">Total: 0</div>
+
+  <table id="tabelaEtiquetas">
+    <thead>
+      <tr>
+        <th>Horário</th>
+        <th>Quantidade</th>
+      </tr>
+    </thead>
+    <tbody id="corpoTabela"></tbody>
+  </table>
+</div>
+
+<script>
+  // BUSCA DADOS DO SUPABASE (VIA APP.PY)
+  async function carregarDados() {
+    const res = await fetch('/dados');
+    const dados = await res.json();
+    const hoje = new Date().toISOString().split('T')[0];
+    
+    const infoHoje = dados[hoje] || { entradas: [], total: 0 };
+    
+    document.getElementById('totalDisplay').innerText = `Total Hoje: ${infoHoje.total}`;
+    
+    const tbody = document.getElementById('corpoTabela');
+    tbody.innerHTML = "";
+    infoHoje.entradas.reverse().forEach(ent => {
+      tbody.innerHTML += `<tr><td>${ent.horario}</td><td>${ent.valor}</td></tr>`;
+    });
+  }
+
+  // ENVIA DADOS PARA O SUPABASE
+  async function adicionarEtiqueta() {
+    const input = document.getElementById('qtdInput');
+    const valor = parseInt(input.value);
+    if (!valor) return;
+
+    const data = new Date().toISOString().split('T')[0];
+    const payload = {
+      [data]: {
+        entradas: [{ valor: valor, horario: new Date().toLocaleTimeString('pt-BR') }]
+      }
+    };
+
+    await fetch('/dados', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    input.value = "";
+    carregarDados();
+  }
+
+  carregarDados();
+  setInterval(carregarDados, 30000); // Atualiza a cada 30 seg
+</script>
+</body>
+</html>
