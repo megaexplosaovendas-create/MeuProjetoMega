@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Conferência Pro - MEGA</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
+    
+    <style>
+        :root { --primary: #9b59b6; --bg: #f4f7f6; --text: #2c3e50; }
+        body { font-family: 'Segoe UI', sans-serif; padding: 20px; background-color: var(--bg); color: var(--text); }
+        .container { max-width: 900px; margin: 0 auto; background: white; padding: 25px; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
+        
+        .header-nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .btn-home { text-decoration: none; color: white; background: #7f8c8d; padding: 8px 15px; border-radius: 5px; font-weight: bold; }
+
+        h1 { color: var(--primary); margin: 0; }
+
+        .input-group { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-bottom: 20px; text-align: left; }
+        .input-box label { display: block; font-size: 0.9em; margin-bottom: 5px; font-weight: bold; }
+        .input-box input { width: 90%; padding: 10px; border: 1px solid #ddd; border-radius: 8px; }
+
+        /* Área de Bipagem */
+        .scan-area { background: #eee; padding: 20px; border-radius: 10px; margin-bottom: 20px; text-align: center; }
+        #reader { width: 300px; margin: 0 auto; display: none; }
+        #manualInput { padding: 15px; width: 60%; font-size: 1.2em; border: 2px solid var(--primary); border-radius: 8px; }
+
+        /* Tabela */
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th { background: var(--primary); color: white; padding: 12px; }
+        td { padding: 10px; border-bottom: 1px solid #ddd; text-align: center; }
+        .status-ok { color: green; font-weight: bold; }
+        .status-cancelled { color: red; text-decoration: line-through; }
+
+        /* Botões */
+        .actions { margin-top: 20px; display: flex; gap: 10px; justify-content: center; }
+        button { padding: 12px 25px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.3s; }
+        .btn-finish { background: #2ecc71; color: white; }
+        .btn-pdf { background: #e74c3c; color: white; }
+        .btn-cam { background: #3498db; color: white; }
+        button:hover { opacity: 0.8; transform: scale(1.05); }
+
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <div class="header-nav">
+            <a href="/" class="btn-home">⬅ Menu Principal</a>
+            <h1>Conferência de Expedição</h1>
+            <div></div> </div>
+
+        <div class="input-group">
+            <div class="input-box">
+                <label>Motorista / Coleta</label>
+                <input type="text" id="motorista" placeholder="Ex: Correios - João">
+            </div>
+            <div class="input-box">
+                <label>Placa (Opcional)</label>
+                <input type="text" id="placa" placeholder="ABC-1234">
+            </div>
+            <div class="input-box">
+                <label>CPF (Opcional)</label>
+                <input type="text" id="cpf" placeholder="000.000.000-00">
+            </div>
+        </div>
+
+        <div class="scan-area">
+            <div id="reader"></div>
+            <input type="text" id="manualInput" placeholder="Bipe aqui ou digite..." autofocus>
+            <div style="margin-top: 10px;">
+                <button class="btn-cam" onclick="toggleCamera()">📷 Ativar Câmera</button>
+            </div>
+        </div>
+
+        <div id="statusMsg" style="height: 20px; color: #666; font-weight: bold;">Aguardando bipes...</div>
+
+        <h3>📦 Itens Conferidos (<span id="count">0</span>)</h3>
+        <table id="scanTable">
+            <thead>
+                <tr>
+                    <th>Código / SKU</th>
+                    <th>Hora</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody id="tableBody"></tbody>
+        </table>
+
+        <div class="actions">
+            <button class="btn-finish" onclick="finalizarConferencia()">💾 Salvar na Nuvem</button>
+            <button class="btn-pdf" onclick="gerarPDF()">📄 Gerar PDF</button>
+        </div>
+    </div>
+
+    <script>
+        let sessionScans = [];
+        let html5QrCode = null;
+        let isCameraOn = false;
+
+        // Foca no input sempre
+        document.body.addEventListener('click', () => document.getElementById('manualInput').focus());
+
+        // Escuta o Enter do leitor de código de barras
+        document.getElementById('manualInput').addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') {
+                processCode(this.value);
+                this.value = '';
+            }
+        });
+
+        function playSound(type) {
+            // Simulação simples de som
+            // Em produção, você pode usar arquivos .mp3 reais
+            const context = new (window.AudioContext || window.webkitAudioContext)();
+            const oscillator = context.createOscillator();
+            oscillator.type = type === 'ok' ? 'sine' : 'sawtooth';
+            oscillator.frequency.value = type === 'ok' ? 800 : 200;
+            oscillator.connect(context.destination);
+            oscillator.start();
+            setTimeout(() => oscillator.stop(), 150);
+        }
+
+        function processCode(code) {
+            if (!code) return;
+            code = code.trim().toUpperCase();
+
+            // Lógica de cancelamento (se bipar o mesmo código 2x seguidas, cancela o anterior)
+            // Você pode remover isso se não gostar
+            const lastScan = sessionScans.length > 0 ? sessionScans[sessionScans.length - 1] : null;
+
+            if (lastScan && lastScan.code === code && lastScan.status === 'OK') {
+                // Cancela o anterior
+                lastScan.status = 'CANCELADO';
+                lastScan.msg = 'Cancelado pelo Operador';
+                playSound('error');
+                updateTable();
+                document.getElementById('statusMsg').innerText = `Item ${code} CANCELADO!`;
+                document.getElementById('statusMsg').style.color = 'red';
+            } else {
+                // Novo registro
+                sessionScans.push({
+                    code: code,
+                    time: new Date().toLocaleTimeString('pt-BR'),
+                    status: 'OK',
+                    msg: 'Conferido'
+                });
+                playSound('ok');
+                updateTable();
+                document.getElementById('statusMsg').innerText = `Lido: ${code}`;
+                document.getElementById('statusMsg').style.color = 'green';
+            }
+        }
+
+        function updateTable() {
+            const tbody = document.getElementById('tableBody');
+            tbody.innerHTML = '';
+            let validCount = 0;
+
+            // Mostra do mais novo para o mais antigo
+            [...sessionScans].reverse().forEach(scan => {
+                let row = `<tr>
+                    <td>${scan.code}</td>
+                    <td>${scan.time}</td>
+                    <td class="${scan.status === 'OK' ? 'status-ok' : 'status-cancelled'}">${scan.msg}</td>
+                </tr>`;
+                tbody.innerHTML += row;
+                if (scan.status === 'OK') validCount++;
+            });
+
+            document.getElementById('count').innerText = validCount;
+        }
+
+        function toggleCamera() {
+            if (isCameraOn) {
+                html5QrCode.stop().then(() => {
+                    document.getElementById('reader').style.display = 'none';
+                    isCameraOn = false;
+                });
+            } else {
+                document.getElementById('reader').style.display = 'block';
+                html5QrCode = new Html5Qrcode("reader");
+                html5QrCode.start(
+                    { facingMode: "environment" }, 
+                    { fps: 10, qrbox: 250 },
+                    (decodedText) => {
+                        processCode(decodedText);
+                    },
+                    (errorMessage) => { /* ignora erros de leitura de frame vazio */ }
+                );
+                isCameraOn = true;
+            }
+        }
+
+        // --- FUNÇÃO PARA SALVAR NA NUVEM (SUPABASE VIA APP.PY) ---
+        function finalizarConferencia() {
+            if (sessionScans.length === 0) {
+                alert("Nenhum item bipado!");
+                return;
+            }
+
+            const dados = {
+                motorista: document.getElementById('motorista').value || 'Não Informado',
+                bipes: sessionScans.filter(s => s.status === 'OK') // Envia só os válidos
+            };
+
+            const btn = document.querySelector('.btn-finish');
+            btn.innerText = "Enviando...";
+            btn.disabled = true;
+
+            fetch('/api/salvar_conferencia', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(dados)
+            })
+            .then(response => response.json())
+            .then(data => {
+                alert("✅ Sucesso! Dados salvos na nuvem.");
+                // Opcional: Limpar tela
+                // sessionScans = []; updateTable();
+                btn.innerText = "💾 Salvar na Nuvem";
+                btn.disabled = false;
+            })
+            .catch(err => {
+                console.error(err);
+                alert("❌ Erro ao salvar. Verifique a conexão.");
+                btn.innerText = "💾 Salvar na Nuvem";
+                btn.disabled = false;
+            });
+        }
+
+        function gerarPDF() {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            
+            doc.setFontSize(18);
+            doc.text("Romaneio de Conferência - MEGA", 14, 20);
+            
+            doc.setFontSize(12);
+            doc.text(`Motorista: ${document.getElementById('motorista').value}`, 14, 30);
+            doc.text(`Data: ${new Date().toLocaleDateString()}`, 14, 38);
+
+            const dadosTabela = sessionScans
+                .filter(s => s.status === 'OK')
+                .map(s => [s.code, s.time, "CONFERIDO"]);
+
+            doc.autoTable({
+                head: [['Código / SKU', 'Hora', 'Status']],
+                body: dadosTabela,
+                startY: 45,
+            });
+
+            doc.save(`Romaneio_${new Date().getTime()}.pdf`);
+        }
+    </script>
+</body>
+</html>
