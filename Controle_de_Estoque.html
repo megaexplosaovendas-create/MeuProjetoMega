@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Controle de Estoque & Qualidade - Nuvem</title>
+    <style>
+        :root { --primary: #0f766e; --bg: #f0fdfa; --text: #134e4a; --success: #16a34a; --danger: #dc2626; }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .btn-home { text-decoration: none; background: #cbd5e1; padding: 8px 12px; border-radius: 6px; color: #334155; font-weight: bold; }
+        
+        .controls { display: grid; grid-template-columns: 3fr 1fr; gap: 15px; margin-bottom: 20px; }
+        input[type="text"] { padding: 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 1rem; }
+        
+        table { width: 100%; border-collapse: collapse; }
+        th { background: var(--primary); color: white; padding: 12px; text-align: left; }
+        td { padding: 12px; border-bottom: 1px solid #e2e8f0; }
+        tr:hover { background-color: #f1f5f9; }
+        
+        .tag { padding: 4px 8px; border-radius: 4px; font-size: 0.85rem; font-weight: bold; }
+        .tag-ok { background: #dcfce7; color: var(--success); }
+        .tag-low { background: #fee2e2; color: var(--danger); }
+        
+        .actions button { cursor: pointer; padding: 6px 10px; border: none; border-radius: 4px; margin-right: 5px; }
+        .btn-add { background: var(--success); color: white; }
+        .btn-sub { background: var(--danger); color: white; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header">
+        <a href="/" class="btn-home">⬅ Menu Principal</a>
+        <h2>📦 Estoque & Qualidade</h2>
+        <div id="status" style="font-size: 0.9rem; color: #64748b;">Conectado</div>
+    </div>
+
+    <div class="controls">
+        <input type="text" id="search" placeholder="🔍 Digite SKU, Nome ou Alias..." onkeyup="renderTable()">
+        <button onclick="carregarDados()" style="background: var(--primary); color: white; border: none; border-radius: 8px; cursor: pointer;">🔄 Atualizar</button>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Produto / SKU</th>
+                <th>Saldo Atual</th>
+                <th>Status</th>
+                <th>Ações Rápidas</th>
+            </tr>
+        </thead>
+        <tbody id="tbody">
+            <tr><td colspan="4" style="text-align:center">Carregando dados da nuvem...</td></tr>
+        </tbody>
+    </table>
+</div>
+
+<script>
+    let inventory = [];
+
+    // 1. CARREGAR DADOS DA NUVEM (API)
+    async function carregarDados() {
+        document.getElementById('status').innerText = "Buscando dados...";
+        try {
+            const res = await fetch('/api/estoque'); // Chama o seu app.py
+            inventory = await res.json();
+            renderTable();
+            document.getElementById('status').innerText = "Atualizado agora";
+        } catch (err) {
+            console.error(err);
+            document.getElementById('status').innerText = "Erro de conexão!";
+            document.getElementById('tbody').innerHTML = "<tr><td colspan='4' style='color:red; text-align:center'>Erro ao conectar com o servidor.</td></tr>";
+        }
+    }
+
+    // 2. RENDERIZAR TABELA
+    function renderTable() {
+        const tbody = document.getElementById('tbody');
+        const term = document.getElementById('search').value.toUpperCase();
+        
+        tbody.innerHTML = "";
+        
+        const filtered = inventory.filter(item => 
+            item.display.toUpperCase().includes(term) || 
+            item.id.includes(term)
+        );
+
+        if (filtered.length === 0) {
+            tbody.innerHTML = "<tr><td colspan='4' style='text-align:center; padding: 20px;'>Nenhum produto encontrado.</td></tr>";
+            return;
+        }
+
+        filtered.slice(0, 50).forEach(item => { // Mostra só os primeiros 50 pra não travar
+            const row = `
+                <tr>
+                    <td>
+                        <strong>${item.display}</strong><br>
+                        <small style="color:#64748b">${item.id}</small>
+                    </td>
+                    <td style="font-size: 1.2rem; font-weight: bold;">${item.qty}</td>
+                    <td>
+                        <span class="tag ${item.qty > 0 ? 'tag-ok' : 'tag-low'}">
+                            ${item.qty > 0 ? 'Em Estoque' : 'Zerado'}
+                        </span>
+                    </td>
+                    <td class="actions">
+                        <button class="btn-add" onclick="movimentar('${item.id}', 'ENTRADA')">+ Ent</button>
+                        <button class="btn-sub" onclick="movimentar('${item.id}', 'SAIDA')">- Sai</button>
+                        <button style="background:#f59e0b; color:white" onclick="movimentar('${item.id}', 'QUALIDADE')">⚠️ Defeito</button>
+                    </td>
+                </tr>
+            `;
+            tbody.innerHTML += row;
+        });
+    }
+
+    // 3. ENVIAR MOVIMENTO PARA A NUVEM
+    async function movimentar(sku, tipo) {
+        let qtd = 1;
+        let obs = "";
+        
+        if (tipo === 'QUALIDADE') {
+            obs = prompt("Descreva o defeito:");
+            if (!obs) return; // Cancelou
+        } else {
+            // Opcional: Pedir quantidade se quiser diferente de 1
+            // qtd = prompt("Quantidade:", 1);
+        }
+
+        try {
+            await fetch('/api/movimentar', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sku, tipo, qtd, obs })
+            });
+            
+            // Recarrega a tabela para mostrar saldo novo
+            await carregarDados(); 
+            
+        } catch (err) {
+            alert("Erro ao salvar movimento.");
+        }
+    }
+
+    // Inicia carregando
+    carregarDados();
+</script>
+
+</body>
+</html>
