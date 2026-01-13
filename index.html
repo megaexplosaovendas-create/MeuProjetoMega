@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema Integrado MEGA - Dashboard</title>
+    <style>
+        :root {
+            --primary: #2c3e50;
+            --accent: #3498db;
+            --bg: #ecf0f1;
+            --card-bg: #ffffff;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg);
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+        header {
+            background-color: var(--primary);
+            color: white;
+            width: 100%;
+            padding: 20px 0;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        h1 { margin: 0; font-weight: 300; letter-spacing: 1px; }
+        
+        .grid-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 25px;
+            width: 90%;
+            max-width: 1200px;
+            margin-top: 40px;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 30px;
+            text-align: center;
+            text-decoration: none;
+            color: var(--primary);
+            transition: transform 0.3s, box-shadow 0.3s;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            border-bottom: 5px solid transparent;
+            cursor: pointer;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+        }
+
+        .card.estoque { border-bottom-color: #e67e22; }
+        .card.bipagem { border-bottom-color: #9b59b6; }
+        .card.etiquetas { border-bottom-color: #2ecc71; }
+        .card.ti { border-bottom-color: #34495e; }
+
+        .icon { font-size: 3rem; margin-bottom: 15px; display: block; }
+        .title { font-size: 1.5rem; font-weight: bold; margin-bottom: 10px; display: block; }
+        .desc { font-size: 0.9rem; color: #7f8c8d; }
+
+        footer {
+            margin-top: auto;
+            padding: 20px;
+            color: #7f8c8d;
+            font-size: 0.8rem;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>SISTEMA INTEGRADO <b>MEGA</b></h1>
+        <p>Central de Operações Logísticas</p>
+    </header>
+
+    <div class="grid-container">
+        <a href="/estoque" class="card estoque">
+            <span class="icon">📦</span>
+            <span class="title">Controle de Estoque</span>
+            <span class="desc">Bipagem de entrada, saída e controle de qualidade. Visão geral dos produtos.</span>
+        </a>
+
+        <a href="/bipagem" class="card bipagem">
+            <span class="icon">🔍</span>
+            <span class="title">Conferência (Bipador)</span>
+            <span class="desc">Conferência de expedição, registro de motoristas e romaneios.</span>
+        </a>
+
+        <a href="/etiquetas" class="card etiquetas">
+            <span class="icon">🏷️</span>
+            <span class="title">Contador de Etiquetas</span>
+            <span class="desc">Controle diário de produtividade e impressão de etiquetas.</span>
+        </a>
+
+        <div class="card ti" onclick="alert('Área restrita à equipe de TI (Em desenvolvimento)')">
+            <span class="icon">💻</span>
+            <span class="title">Gestão de TI & Bots</span>
+            <span class="desc">Painel de controle dos robôs, Upseller e Configurações de IA.</span>
+        </div>
+    </div>
+
+    <footer>
+        &copy; 2026 Mega E-commerce - Desenvolvido pela Equipe Interna de TI
+    </footer>
+
+</body>
+</html>
