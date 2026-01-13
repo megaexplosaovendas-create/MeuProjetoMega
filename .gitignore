@@ -1,0 +1,11 @@
+# Ignorar banco de dados local antigo
+*.db
+*.sqlite3
+dados.json
+
+# Ignorar arquivos de sistema e cache
+__pycache__/
+*.pyc
+
+# Ignorar arquivo de senhas locais (MUITO IMPORTANTE)
+.env
